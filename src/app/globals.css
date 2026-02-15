@@ -17,3 +17,37 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ---- Narrator Avatar ---- */
+.narrator-avatar-container {
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.narrator-avatar {
+  width: 112px;
+  height: 112px;
+  background-image: url('/narrator/narrator_sprite.svg');
+  background-size: 300% 100%;
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  border-radius: 8px;
+  border: 2px solid rgba(120, 113, 108, 0.3);
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.15);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.narrator-avatar-container:hover .narrator-avatar {
+  border-color: rgba(251, 191, 36, 0.5);
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.3);
+}
+
+/* Mouth animation when speaking */
+.narrator-avatar.speaking {
+  animation: narrator-mouth 0.35s steps(3) infinite;
+}
+
+@keyframes narrator-mouth {
+  0% { background-position: 0 0; }
+  100% { background-position: -336px 0; }
+}

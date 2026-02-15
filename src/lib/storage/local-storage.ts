@@ -13,6 +13,7 @@ import {
   Character,
   MemoryEntry,
   NarrationEntry,
+  CampaignState,
 } from "@/types";
 
 const STORAGE_KEY = "rpg-narrator-data";
@@ -45,6 +46,7 @@ function emptySchema(): StorageSchema {
     characters: [],
     memories: [],
     narrations: [],
+    campaignStates: [],
   };
 }
 
@@ -64,6 +66,16 @@ function migrateSchema(old: StorageSchema): StorageSchema {
     }
   }
 
+  // v2 → v3: add memorySummary + houseRules to campaigns (optional fields, no-op needed)
+  // Existing campaigns just won't have these fields, which is fine since they're optional.
+
+  // v3 → v4: add campaignStates array
+  if (old.version < 4) {
+    if (!(migrated as unknown as Record<string, unknown>).campaignStates) {
+      migrated.campaignStates = [];
+    }
+  }
+
   migrated.version = CURRENT_SCHEMA_VERSION;
   saveStorage(migrated);
   return migrated;
@@ -75,7 +87,7 @@ function generateId(): string {
 
 // ---- Generic local repository factory ----
 
-type CollectionKey = "campaigns" | "sessions" | "characters" | "memories" | "narrations";
+type CollectionKey = "campaigns" | "sessions" | "characters" | "memories" | "narrations" | "campaignStates";
 
 function createLocalRepo<T extends { id: string; createdAt: string }>(
   collectionKey: CollectionKey
@@ -140,3 +152,4 @@ export const sessionRepo = createLocalRepo<Session>("sessions");
 export const characterRepo = createLocalRepo<Character>("characters");
 export const memoryRepo = createLocalRepo<MemoryEntry>("memories");
 export const narrationRepo = createLocalRepo<NarrationEntry>("narrations");
+export const campaignStateRepo = createLocalRepo<CampaignState>("campaignStates");

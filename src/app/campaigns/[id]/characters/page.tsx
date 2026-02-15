@@ -197,11 +197,27 @@ function CharacterCard({
           <button onClick={onDelete} className="text-zinc-600 hover:text-red-400 text-sm transition-colors">×</button>
         </div>
       </div>
-      <div className="flex gap-4 text-xs text-zinc-500 pt-1">
+      <div className="flex gap-4 text-xs text-zinc-500 pt-1 flex-wrap">
         <span>SIL {stats.strength}</span>
         <span>OBR {stats.dexterity}</span>
         <span>INT {stats.intelligence}</span>
+        {c.hp !== undefined && <span className="text-zinc-400">HP {c.hp}{c.maxHp ? `/${c.maxHp}` : ""}</span>}
+        {c.xp !== undefined && <span className="text-zinc-400">XP {c.xp}</span>}
       </div>
+      {c.statuses && c.statuses.length > 0 && (
+        <div className="flex gap-1.5 flex-wrap pt-1">
+          {c.statuses.map((s) => (
+            <span key={s} className="text-[10px] bg-blue-900/40 text-blue-300 px-1.5 py-0.5 rounded">{s}</span>
+          ))}
+        </div>
+      )}
+      {c.injuries && c.injuries.length > 0 && (
+        <div className="flex gap-1.5 flex-wrap pt-1">
+          {c.injuries.map((s) => (
+            <span key={s} className="text-[10px] bg-orange-900/40 text-orange-300 px-1.5 py-0.5 rounded">{s}</span>
+          ))}
+        </div>
+      )}
       {c.notes && <p className="text-xs text-zinc-500 italic pt-1">{c.notes}</p>}
     </div>
   );

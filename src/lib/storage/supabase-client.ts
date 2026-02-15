@@ -24,7 +24,7 @@ export async function getSupabaseClient() {
   }
 
   try {
-    // @ts-expect-error — @supabase/supabase-js is an optional dependency
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createClient } = await import("@supabase/supabase-js");
     client = createClient(url, key);
     return client;

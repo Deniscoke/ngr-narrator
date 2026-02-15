@@ -1,108 +1,315 @@
 // ============================================================
-// POST /api/narrate — mock narration endpoint
-// ============================================================
-// In "local" mode: returns generated mock narration.
-// In "ai" mode (future): will call external LLM API.
-// All output is original text — no copyrighted content.
+// POST /api/narrate — narration endpoint using provider pattern
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
+import { LocalProvider } from "@/lib/ai/local-provider";
+import { OpenAIProvider } from "@/lib/ai/openai-provider";
+import type { NarrationRequest, NarrationProvider, CompactNarrationEntry, CharacterSnapshot } from "@/lib/ai/provider";
 
-interface NarrateRequest {
-  prompt: string;
-  campaignId: string;
-  mode: "local" | "ai";
+// ---- Supabase imports (optional — only used when env is set) ----
+let dbRepo: typeof import("@/lib/db/repo.ts") | null = null;
+
+async function loadDbRepo() {
+  if (dbRepo) return dbRepo;
+  try {
+    // Dynamic import so build doesn't fail if supabase isn't installed
+    dbRepo = await import("@/lib/db/repo.ts");
+    return dbRepo;
+  } catch {
+    return null;
+  }
 }
 
-const SCENE_OPENINGS = [
-  "Hustá hmla sa vznáša nad krajinou, keď skupina vstupuje do neznámej oblasti.",
-  "Svetlo pochodne tancuje po kamenných stenách chodby.",
-  "Vietor prináša zvláštnu vôňu — zmes dymu a bylín — z neďalekého osídlenia.",
-  "Ticho lesa je prerušené prasknutím konára niekde v tme.",
-  "Strážca pri bráne si vás premeria podozrievavým pohľadom.",
-];
-
-const SCENE_MIDDLES = [
-  "Okolie prezrádza stopy nedávnej aktivity — niekto tu bol pred vami.",
-  "V diaľke sa ozýva zvuk, ktorý by mohol byť buď spev alebo volanie o pomoc.",
-  "Miestny obyvateľ vám ponúkne informáciu výmenou za drobnú službu.",
-  "Stopy na zemi vedú dvoma smermi — jeden do temnoty, druhý k svetlu.",
-  "Vo vzduchu cítiť napätie — niečo sa blíži.",
-];
-
-const SUGGESTIONS = [
-  "Preskúmať okolie opatrne",
-  "Osloviť postavu v blízkosti",
-  "Pripraviť sa na stretnutie",
-  "Hľadať skrytý priechod",
-  "Vrátiť sa a premyslieť ďalší postup",
-];
-
-function pickRandom<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+// ---- Request body — tolerant shape ----
+interface RequestBody {
+  prompt?: string;
+  userInput?: string; // alias for prompt
+  campaignId?: string;
+  mode?: "local" | "ai";
+  // Campaign context sent from client
+  campaignTitle?: string;
+  campaignDescription?: string;
+  memorySummary?: string;
+  houseRules?: string;
+  rulesPackText?: string;
+  // Optional recent entries from client-side localStorage
+  recentEntries?: CompactNarrationEntry[];
+  // Characters snapshot from client
+  characters?: CharacterSnapshot[];
+  // Language — accept any of these
+  lang?: string;
+  language?: string;
+  locale?: string;
 }
 
-function generateMockNarration(prompt: string): {
-  narration: string;
-  suggestions: string[];
-} {
-  const opening = pickRandom(SCENE_OPENINGS);
-  const middle = pickRandom(SCENE_MIDDLES);
+const localProvider = new LocalProvider();
 
-  const narration =
-    `${opening}\n\n` +
-    `Na základe toho, čo sa deje — ${prompt.slice(0, 120)}${prompt.length > 120 ? "..." : ""} — ` +
-    `rozprávač opisuje nasledovné:\n\n` +
-    `${middle}\n\n` +
-    `Čo urobíte ďalej?`;
+// Lazily created — only when AI key is available
+let openaiProvider: OpenAIProvider | null = null;
 
-  // Pick 3 random suggestions
-  const shuffled = [...SUGGESTIONS].sort(() => Math.random() - 0.5);
-  return { narration, suggestions: shuffled.slice(0, 3) };
+function getOpenAIProvider(): OpenAIProvider | null {
+  const key = process.env.NARRATOR_AI_API_KEY;
+  if (!key) return null;
+  if (!openaiProvider) {
+    const model = process.env.NARRATOR_AI_MODEL || "gpt-4o-mini";
+    openaiProvider = new OpenAIProvider(key, model);
+  }
+  return openaiProvider;
+}
+
+// ---- Supabase availability check (tolerant of NEXT_PUBLIC_ prefix) ----
+function getSupabaseEnv(): { url: string; key: string } | null {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (url && key) return { url, key };
+  return null;
+}
+
+// ---- Structured validation ----
+function validateBody(body: RequestBody): { ok: true; prompt: string; campaignId: string } | { ok: false; error: string; missingFields: string[] } {
+  const prompt = (body.prompt || body.userInput || "").trim();
+  const campaignId = (body.campaignId || "").trim();
+  const missing: string[] = [];
+
+  if (!prompt) missing.push("prompt");
+  if (!campaignId) missing.push("campaignId");
+
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      error: `Chybějící povinná pole: ${missing.join(", ")}`,
+      missingFields: missing,
+    };
+  }
+
+  return { ok: true, prompt, campaignId };
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body: NarrateRequest = await request.json();
+  let body: RequestBody;
 
-    if (!body.prompt?.trim()) {
-      return NextResponse.json(
-        { error: "Prompt je povinný." },
-        { status: 400 }
-      );
-    }
+  // ---- Parse JSON body ----
+  try {
+    body = await request.json();
+  } catch (parseErr) {
+    console.error("[narrate] JSON parse error:", parseErr);
+    return NextResponse.json(
+      { error: "Nepodařilo se přečíst tělo požadavku (nevalidní JSON).", missingFields: [] },
+      { status: 400 }
+    );
+  }
+
+  // ---- Validate required fields ----
+  const validation = validateBody(body);
+  if (!validation.ok) {
+    console.warn("[narrate] Validation failed:", validation);
+    return NextResponse.json(
+      { error: validation.error, missingFields: validation.missingFields },
+      { status: 400 }
+    );
+  }
+
+  const { prompt, campaignId } = validation;
+
+  // Normalize language (accept lang/language/locale)
+  const _language = body.lang || body.language || body.locale || "sk";
+
+  try {
+    // ---- Determine provider ----
+    let provider: NarrationProvider = localProvider;
+    let actualMode: "local" | "ai" = "local";
 
     if (body.mode === "ai") {
-      // Future: check for API key env var
-      const hasKey = !!process.env.NARRATOR_AI_API_KEY;
-      if (!hasKey) {
+      const aiProvider = getOpenAIProvider();
+      if (!aiProvider) {
         return NextResponse.json(
-          { error: "AI mód nie je nakonfigurovaný. Nastav NARRATOR_AI_API_KEY." },
+          {
+            error: "AI režim není nakonfigurován. Nastav NARRATOR_AI_API_KEY v .env.local a restartuj server.",
+            missingFields: ["NARRATOR_AI_API_KEY"],
+          },
           { status: 503 }
         );
       }
-      // TODO: implement actual AI call
+      provider = aiProvider;
+      actualMode = "ai";
+    }
+
+    // ---- Gather context from Supabase (if configured) ----
+    let recentEntries: NarrationRequest["recentEntries"] = [];
+    let relevantEntries: NarrationRequest["relevantEntries"] = [];
+    let supabaseMemory: string | null = null;
+
+    const sbEnv = getSupabaseEnv();
+    if (sbEnv) {
+      try {
+        const repo = await loadDbRepo();
+        if (repo) {
+          supabaseMemory = await repo.ensureCampaignMemory(campaignId);
+
+          const recent = await repo.getRecentNarrations(campaignId, 5);
+          recentEntries = recent.map((r: { player_input: string; narrator_output: string; created_at: string }) => ({
+            userInput: r.player_input,
+            narrationText: r.narrator_output,
+            createdAt: r.created_at,
+          }));
+
+          relevantEntries = await repo.searchSimilarNarrations(
+            campaignId,
+            prompt,
+            4,
+            5
+          );
+        }
+      } catch (dbErr) {
+        console.warn("[narrate] Supabase context fetch failed, continuing without:", dbErr);
+      }
+    }
+
+    // ---- Use client-sent recent entries as fallback ----
+    if (recentEntries.length === 0 && body.recentEntries && body.recentEntries.length > 0) {
+      recentEntries = body.recentEntries.slice(0, 10).map((e) => ({
+        userInput: (e.userInput || "").slice(0, 500),
+        narrationText: (e.narrationText || "").slice(0, 500),
+        createdAt: e.createdAt || "",
+      }));
+    }
+
+    // ---- Build provider request ----
+    const effectiveMemory = supabaseMemory ?? body.memorySummary ?? "";
+
+    // Sanitize characters from client — safety: drop any that leak campaignId mismatch
+    const characters: CharacterSnapshot[] = Array.isArray(body.characters)
+      ? body.characters
+          .filter((c) => {
+            const cAny = c as unknown as Record<string, unknown>;
+            return !cAny.campaignId || cAny.campaignId === campaignId;
+          })
+          .slice(0, 20).map((c) => ({
+          id: String(c.id || ""),
+          name: String(c.name || ""),
+          race: String(c.race || ""),
+          class: String(c.class || ""),
+          level: Number(c.level) || 1,
+          hp: typeof c.hp === "number" ? c.hp : undefined,
+          maxHp: typeof c.maxHp === "number" ? c.maxHp : undefined,
+          xp: typeof c.xp === "number" ? c.xp : undefined,
+          statuses: Array.isArray(c.statuses) ? c.statuses.filter((s: unknown) => typeof s === "string") : undefined,
+          injuries: Array.isArray(c.injuries) ? c.injuries.filter((s: unknown) => typeof s === "string") : undefined,
+          notes: String(c.notes || ""),
+          isNPC: !!c.isNPC,
+        }))
+      : [];
+
+    const narrationRequest: NarrationRequest = {
+      campaignId,
+      campaignTitle: body.campaignTitle ?? "",
+      campaignDescription: body.campaignDescription ?? "",
+      memorySummary: effectiveMemory,
+      houseRules: body.houseRules ?? "",
+      rulesPackText: body.rulesPackText ?? "",
+      recentEntries,
+      relevantEntries,
+      campaignState: null,
+      characters,
+      userInput: prompt,
+    };
+
+    console.log(`[narrate] mode=${actualMode} campaign=${campaignId} recentEntries=${recentEntries.length} relevantEntries=${relevantEntries.length} memoryLen=${effectiveMemory.length}`);
+
+    // ---- Generate narration ----
+    if (actualMode === "local") {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+
+    const result = await provider.generate(narrationRequest);
+
+    // ---- Persist to Supabase (if configured) ----
+    if (sbEnv) {
+      try {
+        const repo = await loadDbRepo();
+        if (repo) {
+          await repo.addNarrationEntry({
+            campaignId,
+            mode: actualMode === "ai" ? "ai" : "mock",
+            playerInput: prompt,
+            narratorOutput: result.narrationText,
+            choices: result.suggestedActions,
+          });
+
+          if (result.updatedMemorySummary) {
+            await repo.setCampaignMemory(campaignId, result.updatedMemorySummary);
+          }
+        }
+      } catch (dbErr) {
+        console.warn("[narrate] Supabase persistence failed:", dbErr);
+      }
+    }
+
+    return NextResponse.json({
+      mode: actualMode,
+      narration: result.narrationText,
+      suggestions: result.suggestedActions,
+      updatedMemorySummary: result.updatedMemorySummary,
+      consequences: result.consequences ?? null,
+      debug: {
+        recentCount: recentEntries.length,
+        relevantCount: relevantEntries.length,
+        memoryLength: effectiveMemory.length,
+        charactersCount: characters.length,
+        supabaseAvailable: !!sbEnv,
+        language: _language,
+      },
+    });
+  } catch (err) {
+    // ---- Specific error types ----
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[narrate] Provider error:", message);
+
+    // OpenAI API errors with detailed status codes
+    if (message.includes("OpenAI API error")) {
+      const statusMatch = message.match(/\d+/);
+      const status = statusMatch ? parseInt(statusMatch[0], 10) : 0;
+
+      let errorMsg = "AI provider vrátil chybu.";
+      if (status === 401 || status === 403) {
+        errorMsg = "Neplatný API klíč nebo chybějící oprávnění. Zkontroluj NARRATOR_AI_API_KEY v .env.local.";
+      } else if (status === 404) {
+        errorMsg = `Neznámý model nebo endpoint (HTTP 404). Zkontroluj NARRATOR_AI_MODEL v .env.local. Platné modely: gpt-4o, gpt-4o-mini, gpt-4-turbo.`;
+      } else if (status === 429) {
+        errorMsg = "Rate limit / kvóta překročena (HTTP 429). Počkej chvíli nebo zkontroluj svůj OpenAI účet.";
+      } else if (status) {
+        errorMsg = `AI provider vrátil chybu (HTTP ${status}). Zkontroluj NARRATOR_AI_API_KEY v .env.local.`;
+      }
+
       return NextResponse.json(
-        { error: "AI mód ešte nie je implementovaný." },
-        { status: 501 }
+        {
+          error: errorMsg,
+          detail: message,
+          httpStatus: status || null,
+        },
+        { status: 502 }
       );
     }
 
-    // Local mock mode
-    // Simulate slight delay
-    await new Promise((r) => setTimeout(r, 300));
+    // JSON parse from AI response
+    if (message.includes("JSON") || message.includes("parse") || message.includes("Unexpected token")) {
+      return NextResponse.json(
+        {
+          error: "AI vrátilo nevalidní odpověď. Zkus znovu.",
+          detail: message,
+        },
+        { status: 502 }
+      );
+    }
 
-    const result = generateMockNarration(body.prompt.trim());
-
-    return NextResponse.json({
-      mode: "local",
-      narration: result.narration,
-      suggestions: result.suggestions,
-    });
-  } catch {
+    // Generic server error — NOT a 400
     return NextResponse.json(
-      { error: "Neplatný požiadavok." },
-      { status: 400 }
+      {
+        error: `Chyba serveru: ${message.slice(0, 200)}`,
+        detail: message,
+      },
+      { status: 500 }
     );
   }
 }
