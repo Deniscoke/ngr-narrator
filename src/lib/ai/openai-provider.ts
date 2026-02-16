@@ -13,6 +13,9 @@ import type { CharacterDelta, NarrationConsequences } from "@/types";
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 const MAX_TOKENS = 1500;
+// Vercel Hobby = 10 s limit; Pro = 60 s. We set 25 s so we get a clean error
+// before Vercel hard-kills the function (avoids opaque 504 to the client).
+const FETCH_TIMEOUT_MS = 25_000;
 
 // ---- System prompt ----
 
@@ -159,28 +162,49 @@ export class OpenAIProvider implements NarrationProvider {
     const systemPrompt = buildSystemPrompt(request);
     const userMessage = buildUserMessage(request);
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.model,
-        max_tokens: MAX_TOKENS,
-        temperature: 0.85,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userMessage },
-        ],
-        response_format: { type: "json_object" },
-      }),
-    });
+    // AbortController gives a clean timeout error instead of a Vercel 504
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+      response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.model,
+          max_tokens: MAX_TOKENS,
+          temperature: 0.85,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userMessage },
+          ],
+          response_format: { type: "json_object" },
+        }),
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      if (fetchErr instanceof Error && fetchErr.name === "AbortError") {
+        throw new Error(`OpenAI API error: timeout po ${FETCH_TIMEOUT_MS / 1000}s — zkus kratší prompt nebo model gpt-4o-mini.`);
+      }
+      throw fetchErr;
+    }
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const errBody = await response.text();
+      const errBody = await response.text().catch(() => "(nelze přečíst tělo chyby)");
       console.error("[OpenAIProvider] API error:", response.status, errBody);
-      throw new Error(`OpenAI API error: ${response.status}`);
+      // Surface the OpenAI error message (e.g. "invalid_api_key") to the route handler
+      let detail = "";
+      try {
+        const parsed = JSON.parse(errBody);
+        detail = parsed?.error?.message ? ` — ${parsed.error.message}` : "";
+      } catch { /* not JSON */ }
+      throw new Error(`OpenAI API error: ${response.status}${detail}`);
     }
 
     const data = await response.json();

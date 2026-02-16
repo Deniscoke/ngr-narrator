@@ -45,15 +45,19 @@ interface RequestBody {
 
 const localProvider = new LocalProvider();
 
-// Lazily created — only when AI key is available
+// Lazily created — only when AI key is available.
+// Re-created if the key changes (e.g. between hot-reload cycles in dev).
 let openaiProvider: OpenAIProvider | null = null;
+let cachedKey: string | undefined;
 
 function getOpenAIProvider(): OpenAIProvider | null {
   const key = process.env.NARRATOR_AI_API_KEY;
   if (!key) return null;
-  if (!openaiProvider) {
+  // Re-create if key changed (dev hot-reload safety) or first call
+  if (!openaiProvider || cachedKey !== key) {
     const model = process.env.NARRATOR_AI_MODEL || "gpt-4o-mini";
     openaiProvider = new OpenAIProvider(key, model);
+    cachedKey = key;
   }
   return openaiProvider;
 }
@@ -123,9 +127,14 @@ export async function POST(request: NextRequest) {
     if (body.mode === "ai") {
       const aiProvider = getOpenAIProvider();
       if (!aiProvider) {
+        // Give the right hint depending on whether we're running on Vercel or locally
+        const isVercel = !!process.env.VERCEL;
+        const hint = isVercel
+          ? "Přidej proměnnou NARRATOR_AI_API_KEY do Vercel dashboardu: Settings → Environment Variables → redeploy."
+          : "Nastav NARRATOR_AI_API_KEY v souboru .env.local a restartuj dev server.";
         return NextResponse.json(
           {
-            error: "AI režim není nakonfigurován. Nastav NARRATOR_AI_API_KEY v .env.local a restartuj server.",
+            error: `AI režim není nakonfigurován. ${hint}`,
             missingFields: ["NARRATOR_AI_API_KEY"],
           },
           { status: 503 }
@@ -271,15 +280,21 @@ export async function POST(request: NextRequest) {
       const statusMatch = message.match(/\d+/);
       const status = statusMatch ? parseInt(statusMatch[0], 10) : 0;
 
+      const isVercel = !!process.env.VERCEL;
+      const keyLocation = isVercel
+        ? "Vercel dashboardu (Settings → Environment Variables)"
+        : "souboru .env.local";
       let errorMsg = "AI provider vrátil chybu.";
       if (status === 401 || status === 403) {
-        errorMsg = "Neplatný API klíč nebo chybějící oprávnění. Zkontroluj NARRATOR_AI_API_KEY v .env.local.";
+        errorMsg = `Neplatný API klíč nebo chybějící oprávnění (HTTP ${status}). Zkontroluj NARRATOR_AI_API_KEY v ${keyLocation}.`;
       } else if (status === 404) {
-        errorMsg = `Neznámý model nebo endpoint (HTTP 404). Zkontroluj NARRATOR_AI_MODEL v .env.local. Platné modely: gpt-4o, gpt-4o-mini, gpt-4-turbo.`;
+        errorMsg = `Neznámý model nebo endpoint (HTTP 404). Zkontroluj NARRATOR_AI_MODEL v ${keyLocation}. Platné modely: gpt-4o, gpt-4o-mini, gpt-4-turbo.`;
       } else if (status === 429) {
         errorMsg = "Rate limit / kvóta překročena (HTTP 429). Počkej chvíli nebo zkontroluj svůj OpenAI účet.";
+      } else if (message.includes("timeout")) {
+        errorMsg = message; // already user-friendly from OpenAIProvider
       } else if (status) {
-        errorMsg = `AI provider vrátil chybu (HTTP ${status}). Zkontroluj NARRATOR_AI_API_KEY v .env.local.`;
+        errorMsg = `AI provider vrátil chybu (HTTP ${status}). Zkontroluj NARRATOR_AI_API_KEY v ${keyLocation}.`;
       }
 
       return NextResponse.json(
