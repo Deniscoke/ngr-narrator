@@ -302,7 +302,7 @@ export default function NarratePage() {
         setCombatScene(data.combatScene);
       }
       if (consequences?.lootFound?.length) {
-        setAvailableLoot(prev => [...prev, ...consequences.lootFound]);
+        setAvailableLoot(prev => [...prev, ...(consequences.lootFound ?? [])]);
       }
 
       if (campaignId) {
