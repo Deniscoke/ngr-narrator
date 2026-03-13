@@ -4,11 +4,11 @@ import { usePathname } from "next/navigation";
 import { AuthButton } from "@/components/auth/AuthButton";
 
 const ROUTE_TITLES: Record<string, string> = {
-  "/": "Dračí Hlídka",
-  "/campaigns": "Kampane",
-  "/profile": "Profil",
-  "/sien-slavy": "Sieň slávy",
-  "/rules": "Pravidlá",
+  "/app": "Dračí Hlídka",
+  "/app/campaigns": "Kampane",
+  "/app/profile": "Profil",
+  "/app/sien-slavy": "Sieň slávy",
+  "/app/rules": "Pravidlá",
 };
 
 export function Header() {

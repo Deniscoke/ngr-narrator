@@ -29,7 +29,7 @@ function AuthErrorContent() {
         </p>
         <div className="flex flex-col gap-2">
           <Link
-            href="/auth/login"
+            href="/"
             className="block text-center py-3 px-4 rounded-lg font-medium"
             style={{
               background: "linear-gradient(180deg, var(--accent-gold) 0%, var(--accent-gold-dim) 100%)",

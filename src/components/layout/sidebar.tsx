@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AuthButton } from "@/components/auth/AuthButton";
 
 const NAV_ITEMS = [
-  { href: "/",           label: "Domov",      icon: "🏠", exact: true  },
-  { href: "/campaigns",  label: "Kampane",    icon: "📋", exact: false },
-  { href: "/characters", label: "Postavy",   icon: "👥", exact: false },
-  { href: "/profile",    label: "Profil",    icon: "👤", exact: false },
-  { href: "/sien-slavy", label: "Sieň slávy", icon: "⭐", exact: false },
-  { href: "/rules",      label: "Pravidlá",  icon: "📄", exact: false },
+  { href: "/app",           label: "Domov",      icon: "🏠", exact: true  },
+  { href: "/app/campaigns",  label: "Kampane",   icon: "📋", exact: false },
+  { href: "/app/characters", label: "Postavy",  icon: "👥", exact: false },
+  { href: "/app/profile",    label: "Profil",   icon: "👤", exact: false },
+  { href: "/app/sien-slavy", label: "Sieň slávy", icon: "⭐", exact: false },
+  { href: "/app/rules",      label: "Pravidlá", icon: "📄", exact: false },
 ];
 
 export function Sidebar() {
@@ -57,12 +58,9 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Prihlásenie */}
+      {/* Odhlásenie */}
       <div className="mt-auto pt-4" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-        <Link href="/auth/login" className="block text-[10px] transition-colors" style={{ color: "var(--accent-gold)" }}>
-          🔐 Prihlásenie
-        </Link>
-        <p className="text-[10px] tracking-wider mt-1" style={{ color: "var(--text-dim)" }}>Local Mode</p>
+        <AuthButton />
       </div>
     </aside>
   );

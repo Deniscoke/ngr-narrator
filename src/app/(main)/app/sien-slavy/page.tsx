@@ -75,7 +75,7 @@ export default function SienSlavyPage() {
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
             Zatiaľ žiadni hráči. Prihlás sa cez Google a budeš prvý v sieni slávy!
           </p>
-          <Link href="/auth/login" className="inline-block mt-4 text-sm" style={{ color: "var(--accent-gold)" }}>
+          <Link href="/" className="inline-block mt-4 text-sm" style={{ color: "var(--accent-gold)" }}>
             Prihlásiť sa →
           </Link>
         </div>
@@ -119,7 +119,7 @@ export default function SienSlavyPage() {
       )}
 
       <div className="mt-8">
-        <Link href="/" className="text-sm" style={{ color: "var(--text-muted)" }}>
+        <Link href="/app" className="text-sm" style={{ color: "var(--text-muted)" }}>
           ← Späť na domov
         </Link>
       </div>

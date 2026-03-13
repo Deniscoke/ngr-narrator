@@ -3,7 +3,9 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { campaignRepo, sessionRepo, characterRepo, narrationRepo, memoryRepo, campaignStateRepo } from "@/lib/storage";
+import { getMyCampaigns, createCampaign, joinCampaign, hasSupabase } from "@/lib/campaigns";
 import { Campaign } from "@/types";
 import { hashPassword, verifyPassword } from "@/lib/security/password";
 import { FancyCard } from "@/components/ui/FancyCard";
@@ -14,12 +16,19 @@ const unlockedCampaigns = new Set<string>();
 export default function CampaignsPage() {
   const router = useRouter();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [user, setUser] = useState<{ id: string } | null>(null);
+  const [useSupabase, setUseSupabase] = useState(false);
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [password, setPassword] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
+
+  // Join campaign
+  const [joinCode, setJoinCode] = useState("");
+  const [joinError, setJoinError] = useState("");
+  const [joinLoading, setJoinLoading] = useState(false);
 
   // Password modal state
   const [pwModal, setPwModal] = useState<{
@@ -30,8 +39,44 @@ export default function CampaignsPage() {
   const [pwError, setPwError] = useState("");
   const pwRef = useRef<HTMLInputElement>(null);
 
-  const reload = () => campaignRepo.getAll().then(setCampaigns);
-  useEffect(() => { reload(); }, []);
+  const reload = async () => {
+    if (useSupabase && user) {
+      const list = await getMyCampaigns(user.id);
+      for (const c of list) {
+        await campaignRepo.upsert(c);
+      }
+      setCampaigns(list);
+    } else {
+      const list = await campaignRepo.getAll();
+      setCampaigns(list);
+    }
+  };
+
+  useEffect(() => {
+    if (!hasSupabase()) {
+      campaignRepo.getAll().then(setCampaigns);
+      return;
+    }
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user: u } }) => {
+      if (u) {
+        setUser({ id: u.id });
+        setUseSupabase(true);
+        getMyCampaigns(u.id).then(async (list) => {
+          for (const c of list) await campaignRepo.upsert(c);
+          setCampaigns(list);
+        });
+      } else {
+        campaignRepo.getAll().then(setCampaigns);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (useSupabase && user) {
+      reload();
+    }
+  }, [useSupabase, user]);
 
   useEffect(() => {
     if (pwModal && pwRef.current) pwRef.current.focus();
@@ -41,13 +86,35 @@ export default function CampaignsPage() {
     e.preventDefault();
     if (!name.trim()) return;
 
+    if (useSupabase && user) {
+      const extra: { passwordHash?: string; passwordSalt?: string } = {};
+      if (password.trim()) {
+        const { hash, salt } = await hashPassword(password.trim());
+        extra.passwordHash = hash;
+        extra.passwordSalt = salt;
+      }
+      const created = await createCampaign(user.id, {
+        name: name.trim(),
+        description: desc.trim(),
+        ...extra,
+      });
+      if (created) {
+        await campaignRepo.upsert(created);
+        unlockedCampaigns.add(created.id);
+        setName("");
+        setDesc("");
+        setPassword("");
+        reload();
+      }
+      return;
+    }
+
     const extra: Partial<Campaign> = {};
     if (password.trim()) {
       const { hash, salt } = await hashPassword(password.trim());
       extra.passwordHash = hash;
       extra.passwordSalt = salt;
     }
-
     const created = await campaignRepo.create({
       name: name.trim(),
       description: desc.trim(),
@@ -55,13 +122,28 @@ export default function CampaignsPage() {
       updatedAt: new Date().toISOString(),
       ...extra,
     });
-    // Auto-unlock just-created campaign
     unlockedCampaigns.add(created.id);
-
     setName("");
     setDesc("");
     setPassword("");
     reload();
+  }
+
+  async function handleJoin(e: React.FormEvent) {
+    e.preventDefault();
+    const code = joinCode.trim();
+    if (!code || !user) return;
+    setJoinLoading(true);
+    setJoinError("");
+    const result = await joinCampaign(user.id, code);
+    setJoinLoading(false);
+    if (result.ok) {
+      await campaignRepo.upsert(result.campaign);
+      setJoinCode("");
+      reload();
+    } else {
+      setJoinError(result.error);
+    }
   }
 
   // Full campaign data wipe
@@ -162,6 +244,25 @@ export default function CampaignsPage() {
           + Nová kampaň
         </button>
       </form>
+
+      {useSupabase && user && (
+        <form onSubmit={handleJoin} className="mb-8 p-4 rounded-xl" style={{ border: "1px dashed var(--border-default)", background: "rgba(42,35,28,0.5)" }}>
+          <p className="text-sm font-medium mb-2" style={{ color: "var(--text-primary)" }}>Pripojiť sa ku kampani</p>
+          <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>Zadaj kód kampaně (UUID) a stiskni Pripojiť.</p>
+          <div className="flex gap-2 flex-wrap">
+            <input
+              value={joinCode}
+              onChange={(e) => { setJoinCode(e.target.value); setJoinError(""); }}
+              placeholder="napr. a1b2c3d4-e5f6-..."
+              className={inputClass + " flex-1 min-w-[200px]"}
+            />
+            <button type="submit" disabled={joinLoading || !joinCode.trim()} className="dh-btn-primary font-medium text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+              {joinLoading ? "Spracovávam…" : "Pripojiť sa"}
+            </button>
+          </div>
+          {joinError && <p className="text-xs text-red-400 mt-2">{joinError}</p>}
+        </form>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {campaigns.length === 0 && (

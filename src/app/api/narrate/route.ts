@@ -50,7 +50,7 @@ let openaiProvider: OpenAIProvider | null = null;
 
 function getOpenAIProvider(): OpenAIProvider | null {
   const key   = process.env.NARRATOR_AI_API_KEY;
-  const model = process.env.NARRATOR_AI_MODEL || "gpt-5-mini";
+  const model = process.env.NARRATOR_AI_MODEL || "gpt-4o";
   if (!key) return null;
   if (!openaiProvider) openaiProvider = new OpenAIProvider(key, model);
   return openaiProvider;

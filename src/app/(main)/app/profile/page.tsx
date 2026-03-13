@@ -8,6 +8,8 @@ import { RACE_ICONS, CLASS_ICONS } from "@/lib/dh-constants";
 import { CharFancyCard, FancyCardTheme } from "@/components/ui/FancyCard";
 import { characterRepo } from "@/lib/storage";
 import { ROSTER_CAMPAIGN_ID } from "@/lib/roster";
+import { getMyCampaigns, hasSupabase } from "@/lib/campaigns";
+import type { Campaign } from "@/types";
 
 function classToTheme(cls: string): FancyCardTheme {
   if (cls === "Válečník" || cls === "Alchymista") return "violet";
@@ -31,6 +33,7 @@ export default function ProfilePage() {
     portraitUrl?: string;
     campaignId: string;
   }>>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [supabaseOk, setSupabaseOk] = useState(false);
 
@@ -50,18 +53,22 @@ export default function ProfilePage() {
         setLoading(false);
         return;
       }
-      Promise.all([
-        fetch("/api/profile").then((r) => r.json()),
-        fetch("/api/characters?owner=me").then((r) => r.json()),
-        characterRepo.getAll({ campaignId: ROSTER_CAMPAIGN_ID } as { campaignId: string }),
-      ]).then(([profileRes, charsRes, localRoster]) => {
-        setProfile(profileRes.profile ?? null);
-        const apiChars = charsRes.characters ?? [];
-        const apiIds = new Set(apiChars.map((c: { id: string }) => c.id));
-        const merged = [...apiChars, ...localRoster.filter((c) => !apiIds.has(c.id))];
-        setCharacters(merged);
-        setLoading(false);
-      }).catch(() => setLoading(false));
+      const profilePromise = fetch("/api/profile").then((r) => r.json());
+      const charsPromise = fetch("/api/characters?owner=me").then((r) => r.json());
+      const rosterPromise = characterRepo.getAll({ campaignId: ROSTER_CAMPAIGN_ID } as { campaignId: string });
+      const campaignsPromise = hasSupabase() ? getMyCampaigns(u.id) : Promise.resolve([]);
+
+      Promise.all([profilePromise, charsPromise, rosterPromise, campaignsPromise]).then(
+        ([profileRes, charsRes, localRoster, campaignList]) => {
+          setProfile(profileRes.profile ?? null);
+          const apiChars = charsRes.characters ?? [];
+          const apiIds = new Set(apiChars.map((c: { id: string }) => c.id));
+          const merged = [...apiChars, ...localRoster.filter((c) => !apiIds.has(c.id))];
+          setCharacters(merged);
+          setCampaigns(campaignList);
+          setLoading(false);
+        }
+      ).catch(() => setLoading(false));
     });
   }, []);
 
@@ -90,7 +97,7 @@ export default function ProfilePage() {
           <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
             Pre zobrazenie profilu sa musíš prihlásiť.
           </p>
-          <Link href="/auth/login" className="dh-btn-primary inline-block px-4 py-2 rounded-lg text-sm font-medium">
+          <Link href="/" className="dh-btn-primary inline-block px-4 py-2 rounded-lg text-sm font-medium">
             Prihlásiť sa cez Google
           </Link>
         </div>
@@ -121,12 +128,38 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {campaigns.length > 0 && (
+        <section className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+              Moje kampane ({campaigns.length})
+            </h2>
+            <Link href="/app/campaigns" className="text-xs" style={{ color: "var(--accent-gold)" }}>
+              Všetky kampane →
+            </Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {campaigns.map((c) => (
+              <Link key={c.id} href={`/campaigns/${c.id}`} className="rounded-xl p-4 block dh-card hover:opacity-90 transition-opacity">
+                <p className="font-medium" style={{ color: "var(--text-primary)" }}>{c.name}</p>
+                {c.description && (
+                  <p className="text-xs mt-1 line-clamp-2" style={{ color: "var(--text-muted)" }}>{c.description}</p>
+                )}
+                <p className="text-[10px] mt-2" style={{ color: "var(--text-dim)" }}>
+                  {new Date(c.updatedAt || c.createdAt).toLocaleDateString("sk-SK")}
+                </p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
             Moje postavy ({characters.length} / 5)
           </h2>
-          <Link href="/characters" className="text-xs" style={{ color: "var(--accent-gold)" }}>
+          <Link href="/app/characters" className="text-xs" style={{ color: "var(--accent-gold)" }}>
             Spravovať v Postavách →
           </Link>
         </div>
@@ -141,7 +174,7 @@ export default function ProfilePage() {
             <p className="text-xs mb-4" style={{ color: "var(--text-dim)" }}>
               Vytvor si postavu v sekcii Postavy — zobrazí sa tu automaticky.
             </p>
-            <Link href="/characters" className="text-sm" style={{ color: "var(--accent-gold)" }}>
+            <Link href="/app/characters" className="text-sm" style={{ color: "var(--accent-gold)" }}>
               Vytvoriť postavu →
             </Link>
           </div>
@@ -170,7 +203,7 @@ export default function ProfilePage() {
       </section>
 
       <div className="mt-8 pt-6" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-        <Link href="/sien-slavy" className="text-sm" style={{ color: "var(--accent-gold)" }}>
+        <Link href="/app/sien-slavy" className="text-sm" style={{ color: "var(--accent-gold)" }}>
           🏆 Sieň slávy — všetci hráči →
         </Link>
       </div>

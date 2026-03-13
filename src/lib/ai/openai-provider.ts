@@ -17,7 +17,7 @@ import type { CharacterDelta, NarrationConsequences } from "@/types";
 import { DH_LITE_RULES, DH_GM_INSTRUCTIONS, DH_PJ_PERSONALITY, DH_COMBAT_INSTRUCTIONS, DH_PARTY_INSTRUCTIONS } from "@/lib/dh-rules";
 import { OTHION_LOCATIONS_PROMPT } from "@/data/othion-locations";
 
-const DEFAULT_MODEL = "gpt-5-mini";
+const DEFAULT_MODEL = "gpt-4o";
 const MAX_COMPLETION_TOKENS = 16384;
 
 // ---- System prompt ----

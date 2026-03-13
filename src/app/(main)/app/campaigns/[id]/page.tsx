@@ -39,7 +39,7 @@ export default function CampaignDetailPage() {
   if (isRoster) {
     return (
       <div className="max-w-3xl">
-        <Link href="/characters" className="text-sm text-zinc-500 hover:text-zinc-300 mb-4 inline-block">
+        <Link href="/app/characters" className="text-sm text-zinc-500 hover:text-zinc-300 mb-4 inline-block">
           ← Späť na postavy
         </Link>
         <div className="mb-1">
@@ -73,7 +73,7 @@ export default function CampaignDetailPage() {
   return (
     <div className="max-w-3xl">
       <Link
-        href="/campaigns"
+        href="/app/campaigns"
         className="text-sm text-zinc-500 hover:text-zinc-300 mb-4 inline-block"
       >
         ← Zpět na kampaně

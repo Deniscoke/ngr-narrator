@@ -150,7 +150,7 @@ export default function CharactersGlobalPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/campaigns"
+          <Link href="/app/campaigns"
             className="text-sm px-3 py-1.5 rounded-lg transition-colors"
             style={{ color: "var(--text-muted)", border: "1px solid var(--border-default)" }}
           >Kampane</Link>

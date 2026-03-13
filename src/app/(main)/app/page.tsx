@@ -15,7 +15,7 @@ const WALLPAPERS = [
 
 const NAV_CARDS: { href: string; icon: string; title: string; subtitle?: string; role: string; watermark: string; theme: FancyCardTheme }[] = [
   {
-    href: "/campaigns",
+    href: "/app/campaigns",
     icon: "/ilustrations/home-kampane.png",
     title: "Kampane",
     role: "Správa príbehov",
@@ -23,7 +23,7 @@ const NAV_CARDS: { href: string; icon: string; title: string; subtitle?: string;
     theme: "gold",
   },
   {
-    href: "/rules",
+    href: "/app/rules",
     icon: "/ilustrations/home-pravidla.png",
     title: "Pravidlá",
     role: "Knižnica pravidiel",
@@ -31,7 +31,7 @@ const NAV_CARDS: { href: string; icon: string; title: string; subtitle?: string;
     theme: "gold",
   },
   {
-    href: "/characters",
+    href: "/app/characters",
     icon: "/ilustrations/home-postavy.png",
     title: "Postavy",
     role: "Galéria & tvorba",
@@ -39,7 +39,7 @@ const NAV_CARDS: { href: string; icon: string; title: string; subtitle?: string;
     theme: "gold",
   },
   {
-    href: "/sien-slavy",
+    href: "/app/sien-slavy",
     icon: "/ilustrations/home-sien-slavy.png",
     title: "Sieň slávy",
     role: "Všetci hráči",
@@ -131,7 +131,7 @@ export default function DashboardPage() {
             <h2 className="text-sm font-semibold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
               Aktívne kampane
             </h2>
-            <Link href="/campaigns" className="text-xs transition-colors" style={{ color: "var(--accent-gold)" }}>
+            <Link href="/app/campaigns" className="text-xs transition-colors" style={{ color: "var(--accent-gold)" }}>
               Všetky →
             </Link>
           </div>
@@ -140,7 +140,7 @@ export default function DashboardPage() {
             <div className="rounded-xl p-6 text-center backdrop-blur-sm" style={{ border: "1px dashed var(--border-default)", background: "rgba(42,35,28,0.5)" }}>
               <p className="text-sm mb-2" style={{ color: "var(--text-muted)" }}>Žiadne aktívne kampane</p>
               <Link
-                href="/campaigns"
+                href="/app/campaigns"
                 className="text-sm underline underline-offset-2"
                 style={{ color: "var(--accent-gold)" }}
               >
@@ -152,7 +152,7 @@ export default function DashboardPage() {
               {campaigns.slice(0, 3).map((campaign) => (
                 <FancyCard
                   key={campaign.id}
-                  href={`/campaigns/${campaign.id}`}
+                  href={`/app/campaigns/${campaign.id}`}
                   title={campaign.name}
                   role={new Date(campaign.updatedAt || campaign.createdAt).toLocaleDateString("sk-SK")}
                   watermark={campaign.name.slice(0, 2).toUpperCase()}

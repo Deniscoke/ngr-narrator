@@ -177,7 +177,7 @@ export default function CharactersPage() {
           )}
           {isRoster && (
             <Link
-              href="/characters"
+              href="/app/characters"
               className="flex items-center gap-2 font-medium text-sm px-3 py-2 rounded-lg transition-all dh-btn-primary"
             >
               + Vytvoriť postavu
@@ -289,7 +289,7 @@ export default function CharactersPage() {
             {isRoster ? "Žiadne postavy v rosteri." : "Žiadne postavy v tejto kampani."}
           </p>
           {isRoster ? (
-            <Link href="/characters" className="text-sm underline underline-offset-2" style={{ color: "var(--accent-gold)" }}>
+            <Link href="/app/characters" className="text-sm underline underline-offset-2" style={{ color: "var(--accent-gold)" }}>
               Vytvoriť postavu v Postavách →
             </Link>
           ) : (

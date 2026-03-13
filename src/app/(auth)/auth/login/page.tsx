@@ -120,6 +120,14 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+
+      {/* IndiWeb branding — bokom v rohu */}
+      <div
+        className="absolute bottom-4 right-4 z-10 text-xs font-medium tracking-widest uppercase opacity-60 hover:opacity-80 transition-opacity"
+        style={{ color: "var(--text-muted)" }}
+      >
+        IndiWeb
+      </div>
     </div>
   );
 }

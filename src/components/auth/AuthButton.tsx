@@ -83,7 +83,7 @@ export function AuthButton() {
     const name = user.user_metadata?.full_name ?? user.user_metadata?.name ?? email.split("@")[0];
     return (
       <div className="flex items-center gap-2">
-        <Link href="/profile" className="text-xs truncate max-w-[120px] transition-colors hover:text-[var(--accent-gold)]" title={email} style={{ color: "var(--text-muted)" }}>
+        <Link href="/app/profile" className="text-xs truncate max-w-[120px] transition-colors hover:text-[var(--accent-gold)]" title={email} style={{ color: "var(--text-muted)" }}>
           {name}
         </Link>
         <SignOutButton />
@@ -93,7 +93,7 @@ export function AuthButton() {
 
   return (
     <Link
-      href="/auth/login"
+      href="/"
       className="text-xs px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-black font-medium transition-colors"
     >
       Prihlásiť sa
