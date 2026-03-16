@@ -25,6 +25,10 @@ export default function CampaignsPage() {
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
 
+  // Create campaign
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState("");
+
   // Join campaign
   const [joinCode, setJoinCode] = useState("");
   const [joinPassword, setJoinPassword] = useState("");
@@ -100,49 +104,70 @@ export default function CampaignsPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return;
-
-    if (useSupabase && user) {
-      const extra: { passwordHash?: string; passwordSalt?: string } = {};
-      if (password.trim()) {
-        const { hash, salt } = await hashPassword(password.trim());
-        extra.passwordHash = hash;
-        extra.passwordSalt = salt;
-      }
-      const created = await createCampaign(user.id, {
-        name: name.trim(),
-        description: desc.trim(),
-        ...extra,
-      });
-      if (created) {
-        await campaignRepo.upsert(created);
-        unlockedCampaigns.add(created.id);
-        setName("");
-        setDesc("");
-        setPassword("");
-        reload();
-      }
+    setCreateError("");
+    if (!name.trim()) {
+      setCreateError("Zadej název kampaně.");
       return;
     }
 
+    setCreateLoading(true);
+    try {
+      if (useSupabase && user) {
+        const extra: { passwordHash?: string; passwordSalt?: string } = {};
+        if (password.trim()) {
+          const { hash, salt } = await hashPassword(password.trim());
+          extra.passwordHash = hash;
+          extra.passwordSalt = salt;
+        }
+        const created = await createCampaign(user.id, {
+          name: name.trim(),
+          description: desc.trim(),
+          ...extra,
+        });
+        if (created) {
+          await campaignRepo.upsert(created);
+          unlockedCampaigns.add(created.id);
+          setName("");
+          setDesc("");
+          setPassword("");
+          reload();
+        } else {
+          setCreateError("Nepodařilo se vytvořit kampaň. Zkontroluj připojení nebo zkus to znovu.");
+        }
+        return;
+      }
+    } catch (err) {
+      setCreateError("Neočekávaná chyba: " + (err instanceof Error ? err.message : String(err)));
+      return;
+    } finally {
+      setCreateLoading(false);
+    }
+
+    // Local storage fallback (no Supabase)
     const extra: Partial<Campaign> = {};
     if (password.trim()) {
       const { hash, salt } = await hashPassword(password.trim());
       extra.passwordHash = hash;
       extra.passwordSalt = salt;
     }
-    const created = await campaignRepo.create({
-      name: name.trim(),
-      description: desc.trim(),
-      rulesetId: "generic",
-      updatedAt: new Date().toISOString(),
-      ...extra,
-    });
-    unlockedCampaigns.add(created.id);
-    setName("");
-    setDesc("");
-    setPassword("");
-    reload();
+    try {
+      const created = await campaignRepo.create({
+        name: name.trim(),
+        description: desc.trim(),
+        rulesetId: "generic",
+        updatedAt: new Date().toISOString(),
+        ...extra,
+      });
+      unlockedCampaigns.add(created.id);
+      setName("");
+      setDesc("");
+      setPassword("");
+      reload();
+    } catch (err) {
+      setCreateError("Nepodařilo se vytvořit kampaň: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setCreateLoading(false);
+    }
   }
 
   async function handleJoin(e: React.FormEvent) {
@@ -275,7 +300,12 @@ export default function CampaignsPage() {
       <h1 className="text-xl font-bold mb-6" style={{ color: "var(--text-primary)" }}>Kampaně</h1>
 
       <form onSubmit={handleCreate} className="mb-8 space-y-3">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Název kampaně" className={inputClass} />
+        <input
+          value={name}
+          onChange={(e) => { setName(e.target.value); setCreateError(""); }}
+          placeholder="Název kampaně *"
+          className={inputClass}
+        />
         <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Popis (volitelné)" className={inputClass} />
         <input
           type="password"
@@ -285,8 +315,15 @@ export default function CampaignsPage() {
           className={inputClass}
           autoComplete="new-password"
         />
-        <button type="submit" className="dh-btn-primary font-medium text-sm px-4 py-2 rounded-lg transition-colors">
-          + Nová kampaň
+        {createError && (
+          <p className="text-xs text-red-400 px-1">{createError}</p>
+        )}
+        <button
+          type="submit"
+          disabled={createLoading}
+          className="dh-btn-primary font-medium text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+        >
+          {createLoading ? "Vytvářím…" : "+ Nová kampaň"}
         </button>
       </form>
 
