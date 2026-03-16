@@ -25,6 +25,7 @@ const MAX_COMPLETION_TOKENS = 16384;
 function buildSystemPrompt(req: NarrationRequest): string {
   const parts: string[] = [
     `Jsi mistrovský vypravěč (Game Master) pro stolní RPG kampaň.`,
+    `JAZYK: Komunikuj VŽDY výhradně v češtině. Nikdy nepřecházej do slovenštiny, angličtiny ani jiného jazyka — ani ve jménech kouzel, předmětů nebo míst.`,
     `Kampaň: "${req.campaignTitle}".`,
   ];
 
@@ -63,8 +64,8 @@ function buildSystemPrompt(req: NarrationRequest): string {
   // Characters section — full state for AI context
   if (req.characters && req.characters.length > 0) {
     const playerChars = req.characters.filter((c: CharacterSnapshot) => !c.isNPC);
-    parts.push(`\n=== POČET POSTÁV V KAMPANI: ${playerChars.length} ===`);
-    parts.push(`Mená postáv: ${playerChars.map((c: CharacterSnapshot) => c.name).join(", ")}. VŽDY ber do úvahy všetky postavy pri vyprávaní, odmenách a dropoch.`);
+    parts.push(`\n=== POČET POSTAV V KAMPANI: ${playerChars.length} ===`);
+    parts.push(`Jména postav: ${playerChars.map((c: CharacterSnapshot) => c.name).join(", ")}. VŽDY ber do úvahy všechny postavy při vyprávění, odměnách a dropech.`);
     const charLines = req.characters.map((c: CharacterSnapshot) => {
       const lines = [`${c.name} (${c.race} ${c.class}, úroveň ${c.level})`];
       if (c.hp !== undefined) lines.push(`HP: ${c.hp}${c.maxHp ? `/${c.maxHp}` : ""}`);
@@ -95,8 +96,8 @@ function buildSystemPrompt(req: NarrationRequest): string {
     parts.push(`\nInventář a předměty:`);
     parts.push(`- Inventář každé postavy je uveden výše. VŽDY ho ber v potaz — pokud hráč použije předmět (lektvar, zbraň, nástroj), odraž to ve vyprávění a v consequences.deltas přidej removeItems.`);
     parts.push(`- DROPY (z nepřítele, truhly, nálezu): VŽDY přidávej do lootFound. Používej standardní názvy pro bonusy: "Meč" (1k6+SIL), "Dýka" (1k4), "Luk" (1k6), "Kladivo" (1k8), "Kůže" (+2 OB), "Kroužky" (+4 OB), "Plát" (+6 OB), "Lektvar léčení" (1k6+1 HP).`);
-    parts.push(`- addItems v deltas: POUZE když NPC přímo odovzdá predmet konkrétnej postave (např. "starosta dal Brankovi klíč").`);
-    parts.push(`- Quest predmety od NPC: addItems. Predmety z truhly/dropu: lootFound.`);
+    parts.push(`- addItems v deltas: POUZE když NPC přímo odevzdá předmět konkrétní postavě (např. "starosta dal Brankovi klíč").`);
+    parts.push(`- Quest předměty od NPC: addItems. Předměty z truhly/dropu: lootFound.`);
     parts.push(`- Spotřební předměty (lektvary, jídlo): při použití vždy removeItems.`);
     parts.push(`- suggestedActions může obsahovat akce využívající inventář (např. "Použít Lektvar léčení", "Prozkoumat mapu").`);
   }

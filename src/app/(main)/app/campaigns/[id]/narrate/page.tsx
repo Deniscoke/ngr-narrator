@@ -138,11 +138,11 @@ export default function NarratePage() {
   // ---- Data loading — Supabase-first, localStorage fallback ----
 
   function classifyLoadError(err: unknown): string {
-    if (!err || typeof err !== "object") return "Chyba pri načítaní dát.";
+    if (!err || typeof err !== "object") return "Chyba při načítání dat.";
     const e = err as { status?: number; code?: string; message?: string };
-    if (e.status === 401 || e.code === "PGRST301") return "Nie si prihlásený alebo platnosť session vypršala. Prihlás sa znovu.";
-    if (e.status === 403) return "Nemáš prístup k tejto kampani.";
-    return `Chyba pri načítaní dát: ${e.message ?? "neznáma chyba"}.`;
+    if (e.status === 401 || e.code === "PGRST301") return "Nejsi přihlášen nebo platnost session vypršela. Přihlas se znovu.";
+    if (e.status === 403) return "Nemáš přístup k této kampani.";
+    return `Chyba při načítání dat: ${e.message ?? "neznámá chyba"}.`;
   }
 
   const loadCampaign = async () => {
@@ -570,7 +570,7 @@ export default function NarratePage() {
       <details className="mb-4 rounded-lg dh-card group">
         <summary className="text-[10px] uppercase tracking-wider cursor-pointer py-2 px-3 list-none flex items-center gap-2" style={{ color: "var(--text-muted)" }}>
           <span className="group-open:rotate-90 transition-transform">▶</span>
-          Bojové pravidlá (DH-LITE)
+          Bojová pravidla (DH-LITE)
         </summary>
         <div className="px-3 pb-3 pt-0 text-[10px] space-y-1" style={{ color: "var(--text-secondary)" }}>
           <p><strong>Útok:</strong> k20 + oprava SIL (blízko) / OBR (dálka) ≥ OB = zásah</p>

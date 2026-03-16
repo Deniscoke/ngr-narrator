@@ -64,7 +64,7 @@ export default function DiceRoller({ characters, onRollResult }: DiceRollerProps
 
         {lastRoll && (
           <span className="text-sm" style={{ color: "var(--accent-gold)" }}>
-            Posledný hod: {lastRoll.type.toUpperCase()} = {lastRoll.result}
+            Poslední hod: {lastRoll.type.toUpperCase()} = {lastRoll.result}
           </span>
         )}
       </div>
