@@ -32,6 +32,20 @@ export default function CampaignsPage() {
   const [joinError, setJoinError] = useState("");
   const [joinLoading, setJoinLoading] = useState(false);
 
+  // Copy join code feedback
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  async function handleCopyCode(e: React.MouseEvent, campaignId: string, code: string) {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      // Fallback: silently fail — code is visible in the UI
+    }
+    setCopiedId(campaignId);
+    setTimeout(() => setCopiedId(null), 2000);
+  }
+
   // Password modal state
   const [pwModal, setPwModal] = useState<{
     campaignId: string;
@@ -353,12 +367,38 @@ export default function CampaignsPage() {
               })()}
               items={[
                 ...(c.description ? [{ icon: "📜", label: c.description }] : []),
-                ...((c as CampaignWithRole).role === "owner" && c.joinCode
-                  ? [{ icon: "🔗", label: `Kód: ${c.joinCode}` }]
-                  : [{ icon: "🔑", label: c.id.slice(0, 8) }]),
               ]}
               onClick={() => handleCampaignClick(c)}
             >
+              {/* Join code badge — prominently visible for owners */}
+              {(c as CampaignWithRole).role === "owner" && c.joinCode && (
+                <div
+                  className="flex items-center gap-2 mt-2 mb-1 px-2 py-1.5 rounded-lg"
+                  style={{ background: "rgba(201,162,39,0.08)", border: "1px solid rgba(201,162,39,0.2)" }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>Kód pro hráče:</span>
+                  <span
+                    className="font-mono font-bold tracking-[0.2em] text-sm flex-1"
+                    style={{ color: "var(--accent-gold)" }}
+                  >
+                    {c.joinCode}
+                  </span>
+                  <button
+                    onClick={(e) => handleCopyCode(e, c.id, c.joinCode!)}
+                    className="text-[10px] px-2 py-0.5 rounded transition-colors flex-shrink-0"
+                    style={{
+                      color: copiedId === c.id ? "rgba(52,211,153,0.9)" : "rgba(201,162,39,0.7)",
+                      background: copiedId === c.id ? "rgba(52,211,153,0.1)" : "rgba(201,162,39,0.08)",
+                      border: `1px solid ${copiedId === c.id ? "rgba(52,211,153,0.3)" : "rgba(201,162,39,0.2)"}`,
+                    }}
+                    title="Zkopírovat kód"
+                  >
+                    {copiedId === c.id ? "✓ Zkopírováno" : "📋 Kopírovat"}
+                  </button>
+                </div>
+              )}
+
               <div className="flex gap-2 mt-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
                 <button onClick={(e) => { e.stopPropagation(); startEdit(c); }}
                   className="text-[11px] px-2 py-1 rounded transition-colors"
