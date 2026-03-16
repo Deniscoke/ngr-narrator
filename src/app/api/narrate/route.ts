@@ -7,21 +7,24 @@ import { LocalProvider } from "@/lib/ai/local-provider";
 import { OpenAIProvider } from "@/lib/ai/openai-provider";
 import type { NarrationRequest, NarrationProvider, CompactNarrationEntry, CharacterSnapshot } from "@/lib/ai/provider";
 
-// ---- Supabase imports (optional — only used when env is set) ----
-let dbRepo: typeof import("@/lib/db/repo.ts") | null = null;
-
-async function loadDbRepo() {
-  if (dbRepo) return dbRepo;
+// ---- Supabase server client — lazy, dynamic (requires next/headers) ----
+async function loadServerSupabase() {
   try {
-    // Dynamic import so build doesn't fail if supabase isn't installed
-    dbRepo = await import("@/lib/db/repo.ts");
-    return dbRepo;
+    const { createClient } = await import("@/lib/supabase/server");
+    return await createClient();
   } catch {
     return null;
   }
 }
 
 // ---- Request body — tolerant shape ----
+interface DiceRollRecord {
+  diceType: "d6" | "d20";
+  result: number;
+  isCritical: boolean;
+  isBonusRoll: boolean;
+}
+
 interface RequestBody {
   prompt?: string;
   userInput?: string; // alias for prompt
@@ -37,10 +40,47 @@ interface RequestBody {
   recentEntries?: CompactNarrationEntry[];
   // Characters snapshot from client
   characters?: CharacterSnapshot[];
+  // Dice rolls this turn — validated server-side
+  diceRolls?: DiceRollRecord[];
   // Language — accept any of these
   lang?: string;
   language?: string;
   locale?: string;
+}
+
+// ---- Dice roll sequence validation ----
+// Rule: a bonus roll (isBonusRoll=true) is only valid if preceded by a
+// critical first roll (isCritical=true, isBonusRoll=false).
+// This cannot be enforced purely in the UI (DevTools can fabricate requests).
+function validateDiceRolls(rolls: DiceRollRecord[]): { ok: true } | { ok: false; error: string } {
+  if (!rolls.length) return { ok: true };
+
+  const bonusRolls = rolls.filter((r) => r.isBonusRoll);
+  if (bonusRolls.length === 0) return { ok: true };
+
+  // There must be exactly one bonus roll and it must follow a critical first roll
+  if (bonusRolls.length > 1) {
+    return { ok: false, error: "Neplatná sekvence hodů kostkou: více bonusových hodů." };
+  }
+
+  const criticalFirstRoll = rolls.find((r) => r.isCritical && !r.isBonusRoll);
+  if (!criticalFirstRoll) {
+    return { ok: false, error: "Neplatná sekvence hodů kostkou: bonusový hod bez předchozího kritického hodu." };
+  }
+
+  // The bonus roll must use the same dice type as the critical
+  const bonus = bonusRolls[0];
+  if (bonus.diceType !== criticalFirstRoll.diceType) {
+    return { ok: false, error: "Neplatná sekvence hodů kostkou: bonusový hod použil jiný typ kostky." };
+  }
+
+  // Sanity: isCritical must match actual roll value
+  const criticalThreshold = criticalFirstRoll.diceType === "d6" ? 6 : 20;
+  if (criticalFirstRoll.result !== criticalThreshold) {
+    return { ok: false, error: "Neplatná sekvence hodů kostkou: označený kritický hod neodpovídá hodnotě." };
+  }
+
+  return { ok: true };
 }
 
 const localProvider = new LocalProvider();
@@ -110,10 +150,52 @@ export async function POST(request: NextRequest) {
 
   const { prompt, campaignId } = validation;
 
+  // ---- Validate dice roll sequence (server-side, cannot be bypassed by UI) ----
+  const diceRolls: DiceRollRecord[] = Array.isArray(body.diceRolls) ? body.diceRolls : [];
+  if (diceRolls.length > 0) {
+    const diceValidation = validateDiceRolls(diceRolls);
+    if (!diceValidation.ok) {
+      console.warn("[narrate] Invalid dice sequence:", diceValidation.error, diceRolls);
+      return NextResponse.json(
+        { error: diceValidation.error, missingFields: [] },
+        { status: 400 }
+      );
+    }
+  }
+
   // Normalize language (accept lang/language/locale)
-  const _language = body.lang || body.language || body.locale || "sk";
+  const _language = body.lang || body.language || body.locale || "cs";
 
   try {
+    // ---- Auth + membership check (when Supabase is configured) ----
+    const sbEnv = getSupabaseEnv();
+    let supabase: Awaited<ReturnType<typeof loadServerSupabase>> = null;
+
+    if (sbEnv) {
+      supabase = await loadServerSupabase();
+      if (supabase) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          return NextResponse.json(
+            { error: "Nepřihlášený uživatel.", missingFields: [] },
+            { status: 401 }
+          );
+        }
+        const { data: member } = await supabase
+          .from("campaign_members")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("campaign_id", campaignId)
+          .single();
+        if (!member) {
+          return NextResponse.json(
+            { error: "Nemáš přístup k této kampani.", missingFields: [] },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
     // ---- Determine provider ----
     let provider: NarrationProvider = localProvider;
     let actualMode: "local" | "ai" = "local";
@@ -123,7 +205,7 @@ export async function POST(request: NextRequest) {
       if (!aiProvider) {
         return NextResponse.json(
           {
-            error: "AI nie je nakonfigurované. Zadaj OpenAI API kľúč v nastaveniach (⚙️) alebo nastav NARRATOR_AI_API_KEY v .env.local.",
+            error: "AI není nakonfigurované. Zadej OpenAI API klíč v nastaveních (⚙️) nebo nastav NARRATOR_AI_API_KEY v .env.local.",
             missingFields: ["NARRATOR_AI_API_KEY"],
           },
           { status: 503 }
@@ -138,26 +220,51 @@ export async function POST(request: NextRequest) {
     let relevantEntries: NarrationRequest["relevantEntries"] = [];
     let supabaseMemory: string | null = null;
 
-    const sbEnv = getSupabaseEnv();
-    if (sbEnv) {
+    if (sbEnv && supabase) {
       try {
-        const repo = await loadDbRepo();
-        if (repo) {
-          supabaseMemory = await repo.ensureCampaignMemory(campaignId);
+        // Memory summary from campaigns table
+        const { data: campaignRow } = await supabase
+          .from("campaigns")
+          .select("memory_summary")
+          .eq("id", campaignId)
+          .maybeSingle();
+        supabaseMemory = campaignRow?.memory_summary ?? null;
 
-          const recent = await repo.getRecentNarrations(campaignId, 5);
-          recentEntries = recent.map((r: { player_input: string; narrator_output: string; created_at: string }) => ({
-            userInput: r.player_input,
-            narrationText: r.narrator_output,
+        // Recent narrations (new schema: user_input / narration_text)
+        const { data: recentData } = await supabase
+          .from("narrations")
+          .select("user_input, narration_text, created_at")
+          .eq("campaign_id", campaignId)
+          .order("created_at", { ascending: false })
+          .limit(5);
+        if (recentData) {
+          recentEntries = recentData.map((r: { user_input: string; narration_text: string; created_at: string }) => ({
+            userInput: r.user_input,
+            narrationText: r.narration_text,
             createdAt: r.created_at,
           }));
+        }
 
-          relevantEntries = await repo.searchSimilarNarrations(
-            campaignId,
-            prompt,
-            4,
-            5
-          );
+        // Relevant entries — keyword search
+        const tokens = Array.from(new Set(
+          prompt.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(t => t.length >= 3)
+        )).slice(0, 6);
+        if (tokens.length > 0) {
+          const orClauses = tokens.map(t => `user_input.ilike.%${t}%`).join(",");
+          const { data: relData } = await supabase
+            .from("narrations")
+            .select("user_input, narration_text, created_at")
+            .eq("campaign_id", campaignId)
+            .or(orClauses)
+            .order("created_at", { ascending: false })
+            .range(5, 9);
+          if (relData) {
+            relevantEntries = relData.map((r: { user_input: string; narration_text: string; created_at: string }) => ({
+              userInput: r.user_input,
+              narrationText: r.narration_text,
+              createdAt: r.created_at,
+            }));
+          }
         }
       } catch (dbErr) {
         console.warn("[narrate] Supabase context fetch failed, continuing without:", dbErr);
@@ -223,21 +330,25 @@ export async function POST(request: NextRequest) {
     const result = await provider.generate(narrationRequest);
 
     // ---- Persist to Supabase (if configured) ----
-    if (sbEnv) {
+    if (sbEnv && supabase) {
       try {
-        const repo = await loadDbRepo();
-        if (repo) {
-          await repo.addNarrationEntry({
-            campaignId,
-            mode: actualMode === "ai" ? "ai" : "mock",
-            playerInput: prompt,
-            narratorOutput: result.narrationText,
-            choices: result.suggestedActions,
-          });
+        await supabase.from("narrations").insert({
+          campaign_id: campaignId,
+          mode: actualMode === "ai" ? "ai" : "mock",
+          user_input: prompt,
+          narration_text: result.narrationText,
+          suggested_actions: result.suggestedActions ?? [],
+          consequences: result.consequences ?? null,
+        });
 
-          if (result.updatedMemorySummary) {
-            await repo.setCampaignMemory(campaignId, result.updatedMemorySummary);
-          }
+        if (result.updatedMemorySummary) {
+          await supabase
+            .from("campaigns")
+            .update({
+              memory_summary: result.updatedMemorySummary,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", campaignId);
         }
       } catch (dbErr) {
         console.warn("[narrate] Supabase persistence failed:", dbErr);

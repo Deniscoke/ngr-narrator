@@ -17,7 +17,7 @@ import { RACE_ICONS, CLASS_ICONS } from "@/lib/dh-constants";
 import { Campaign, Character, NarrationEntry, NarrationConsequences, CharacterDelta } from "@/types";
 import type { MapLocation, MapMarkerData, CombatScene } from "@/lib/ai/provider";
 import GameMap from "@/components/ui/GameMap";
-import DiceRoller from "@/components/ui/DiceRoller";
+import DiceRoller, { type DiceRollRecord } from "@/components/ui/DiceRoller";
 import TalkingNarrator from "@/components/ui/TalkingNarrator";
 import CombatMap from "@/components/ui/CombatMap";
 import { getItemBonusText } from "@/lib/dh-items";
@@ -118,8 +118,9 @@ export default function NarratePage() {
   // Right panel tab
   const [rightTab, setRightTab] = useState<"characters" | "map">("characters");
 
-  // Dice roll state — setLastDiceRoll is used by DiceRoller callback
-  const [, setLastDiceRoll] = useState<string | null>(null);
+  // Dice session — accumulates rolls for the current narration turn
+  // Cleared after each successful narration generate
+  const [diceSession, setDiceSession] = useState<DiceRollRecord[]>([]);
 
   // Load error — surfaced when Supabase returns auth/permission failures
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -354,6 +355,8 @@ export default function NarratePage() {
       recentEntries: recentForContext,
       characters: charsSnapshot,
       lang: "cs",
+      // Dice session — server validates bonus roll legitimacy
+      diceRolls: diceSession.length > 0 ? diceSession : undefined,
     };
 
     try {
@@ -376,6 +379,7 @@ export default function NarratePage() {
 
       setOutput(data.narration);
       setSuggestions(data.suggestions ?? []);
+      setDiceSession([]); // clear dice session after successful narration
 
       // Parse consequences
       const consequences: NarrationConsequences | null = data.consequences ?? null;
@@ -584,9 +588,21 @@ export default function NarratePage() {
       <div className="mb-4">
         <DiceRoller
           characters={characters.map(c => ({ id: c.id, name: c.name }))}
-          onRollResult={(charName, diceType, result) => {
-            const rollText = `🎲 ${charName} hodil ${result} na ${diceType.toUpperCase()}${result === (diceType === "d6" ? 6 : 20) ? " (kritický úspěch!)" : result === 1 ? " (kritický neúspěch!)" : ""}`;
-            setLastDiceRoll(rollText);
+          onRollResult={(charName, diceType, result, meta) => {
+            // Accumulate into session (sent to server for validation)
+            const record: DiceRollRecord = {
+              diceType,
+              result,
+              isCritical: meta.isCritical,
+              isBonusRoll: meta.isBonusRoll,
+            };
+            setDiceSession(prev => [...prev, record]);
+
+            // Append descriptive text to prompt
+            let rollText = `🎲 ${charName} hodil ${result} na ${diceType.toUpperCase()}`;
+            if (meta.isCritical) rollText += " — KRITICKÝ ZÁSAH!";
+            else if (result === 1 && !meta.isBonusRoll) rollText += " (kritický neúspěch!)";
+            if (meta.isBonusRoll) rollText = `🎲 ${charName} bonusový hod: ${diceType.toUpperCase()} = ${result}`;
             setPrompt(prev => prev ? `${prev}\n${rollText}` : rollText);
           }}
         />
