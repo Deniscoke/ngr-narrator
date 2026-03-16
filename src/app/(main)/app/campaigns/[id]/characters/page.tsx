@@ -12,6 +12,17 @@ import { CharFancyCard, FancyCardTheme } from "@/components/ui/FancyCard";
 import { LevelUpModal } from "@/components/ui/LevelUpModal";
 import { SpecializationModal } from "@/components/ui/SpecializationModal";
 import type { SpecializationOption } from "@/lib/dh-progressions";
+import {
+  fetchCharacters,
+  insertCharacter,
+  deleteCharacter,
+  updateCharacter,
+} from "@/lib/campaigns/campaign-content-live";
+
+const SB_AVAILABLE = !!(
+  process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)
+);
 
 function classToTheme(cls: string): FancyCardTheme {
   if (cls === "Válečník" || cls === "Alchymista") return "amber";
@@ -31,10 +42,29 @@ export default function CharactersPage() {
   const [levelUpChar, setLevelUpChar] = useState<Character | null>(null);
   const [specializeChar, setSpecializeChar] = useState<Character | null>(null);
 
+  const isRoster = campaignId === ROSTER_CAMPAIGN_ID;
+
   const reload = async () => {
     if (!campaignId) return;
-    characterRepo.getAll({ campaignId } as Partial<Character>).then(setCharacters);
-    // Roster: pri prihlásení z API + merge s localStorage (rovnaký zdroj ako profil)
+
+    if (!isRoster && SB_AVAILABLE) {
+      // Campaign characters → Supabase is the source of truth
+      try {
+        const chars = await fetchCharacters(campaignId);
+        setCharacters(chars);
+      } catch (err) {
+        console.error("[characters] fetchCharacters failed:", err);
+        // Fallback to localStorage
+        const chars = await characterRepo.getAll({ campaignId } as Partial<Character>);
+        setCharacters(chars);
+      }
+    } else {
+      // Roster or no Supabase → localStorage
+      const chars = await characterRepo.getAll({ campaignId } as Partial<Character>);
+      setCharacters(chars);
+    }
+
+    // Roster (profile characters) always from localStorage + API merge
     try {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
@@ -54,6 +84,7 @@ export default function CharactersPage() {
       characterRepo.getAll({ campaignId: ROSTER_CAMPAIGN_ID } as Partial<Character>).then(setRosterChars);
     }
   };
+
   useEffect(() => { void reload(); }, [campaignId]);
 
   /* level up */
@@ -64,13 +95,17 @@ export default function CharactersPage() {
     stats[updates.statKey] = (stats[updates.statKey] ?? 0) + 1;
     const newHp = (c.hp ?? c.maxHp ?? 0) + updates.hpBonus;
     const newMaxHp = (c.maxHp ?? 0) + updates.hpBonus;
-    await characterRepo.update(id, {
+    const patch = {
       level: (c.level ?? 1) + 1,
       hp: newHp,
       maxHp: newMaxHp,
       stats,
-      updatedAt: new Date().toISOString(),
-    });
+    };
+    if (!isRoster && SB_AVAILABLE) {
+      await updateCharacter(id, patch);
+    } else {
+      await characterRepo.update(id, { ...patch, updatedAt: new Date().toISOString() });
+    }
     setLevelUpChar(null);
     reload();
   }
@@ -82,11 +117,12 @@ export default function CharactersPage() {
     if (spec.statBonus) {
       stats[spec.statBonus] = (stats[spec.statBonus] ?? 0) + 1;
     }
-    await characterRepo.update(specializeChar.id, {
-      specialization: spec.name,
-      stats,
-      updatedAt: new Date().toISOString(),
-    });
+    const patch = { specialization: spec.name, stats };
+    if (!isRoster && SB_AVAILABLE) {
+      await updateCharacter(specializeChar.id, patch);
+    } else {
+      await characterRepo.update(specializeChar.id, { ...patch, updatedAt: new Date().toISOString() });
+    }
     setSpecializeChar(null);
     reload();
   }
@@ -94,35 +130,27 @@ export default function CharactersPage() {
   /* delete */
   async function handleDelete(id: string) {
     if (!confirm("Smazat tuto postavu?")) return;
-    await characterRepo.delete(id);
+    if (!isRoster && SB_AVAILABLE) {
+      await deleteCharacter(id);
+    } else {
+      await characterRepo.delete(id);
+    }
     reload();
   }
 
-  /* add from roster — copy with full data */
+  /* add from roster — copy into campaign via Supabase */
   async function addFromRoster(rosterChar: Character) {
     if (!campaignId) return;
     const { id: _omit, createdAt: _c, updatedAt: _u, campaignId: _cid, ...rest } = rosterChar;
-    const created = await characterRepo.create({
-      ...rest,
-      campaignId,
-      updatedAt: new Date().toISOString(),
-    });
-    const { data: { user } } = await createClient().auth.getUser();
-    if (user) {
-      const res = await fetch("/api/characters", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(created),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        if (res.status === 400 && err.error) {
-          await characterRepo.delete(created.id);
-          alert(err.error);
-          return;
-        }
-        console.warn("[addFromRoster] Sync to Supabase failed:", res.status);
+
+    if (SB_AVAILABLE) {
+      const created = await insertCharacter({ ...rest, campaignId });
+      if (!created) {
+        alert("Nepodařilo se přidat postavu do kampaně.");
+        return;
       }
+    } else {
+      await characterRepo.create({ ...rest, campaignId, updatedAt: new Date().toISOString() });
     }
     setRosterModalOpen(false);
     reload();
@@ -133,9 +161,10 @@ export default function CharactersPage() {
     setEditingId(c.id);
     setEditChar({ ...c });
   }
+
   async function saveEdit() {
     if (!editingId || !editChar?.name?.trim()) return;
-    await characterRepo.update(editingId, {
+    const patch = {
       name:  editChar.name.trim(),
       race:  editChar.race ?? "",
       class: editChar.class ?? "",
@@ -143,7 +172,12 @@ export default function CharactersPage() {
       notes: editChar.notes ?? "",
       isNPC: editChar.isNPC ?? false,
       stats: editChar.stats ?? {},
-    });
+    };
+    if (!isRoster && SB_AVAILABLE) {
+      await updateCharacter(editingId, patch);
+    } else {
+      await characterRepo.update(editingId, { ...patch, updatedAt: new Date().toISOString() });
+    }
     setEditingId(null);
     setEditChar(null);
     reload();
@@ -152,8 +186,6 @@ export default function CharactersPage() {
   const pcs  = characters.filter(c => !c.isNPC);
   const npcs = characters.filter(c => c.isNPC);
 
-  const isRoster = campaignId === ROSTER_CAMPAIGN_ID;
-
   /* ── LIST VIEW ─────────────────────────────────── */
   return (
     <div className="max-w-3xl">
@@ -161,7 +193,7 @@ export default function CharactersPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <Link
-            href={isRoster ? "/characters" : `/campaigns/${campaignId}`}
+            href={isRoster ? "/app/characters" : `/app/campaigns/${campaignId}`}
             className="text-sm mb-1 inline-block transition-colors"
             style={{ color: "var(--text-muted)" }}
           >
