@@ -108,7 +108,7 @@ export async function insertNarration(entry: Omit<NarrationEntry, "id" | "create
     })
     .select()
     .single();
-  if (error) return null;
+  if (error) throw error;
   return mapNarration(data);
 }
 
@@ -147,7 +147,7 @@ export async function upsertCharacter(char: Partial<Character> & { campaignId: s
     updated_at: new Date().toISOString(),
   };
   const { data, error } = await supabase.from("characters").upsert(row, { onConflict: "id" }).select().single();
-  if (error) return null;
+  if (error) throw error;
   return mapCharacter(data as Record<string, unknown>);
 }
 
@@ -176,7 +176,7 @@ export async function insertCharacter(char: Omit<Character, "id" | "createdAt" |
     })
     .select()
     .single();
-  if (error) return null;
+  if (error) throw error;
   return mapCharacter(data as Record<string, unknown>);
 }
 
@@ -198,7 +198,7 @@ export async function updateCharacter(id: string, updates: Partial<Character>): 
   if (updates.isNPC !== undefined) row.is_npc = updates.isNPC;
   row.updated_at = new Date().toISOString();
   const { data, error } = await supabase.from("characters").update(row).eq("id", id).select().single();
-  if (error) return null;
+  if (error) throw error;
   return mapCharacter(data as Record<string, unknown>);
 }
 
@@ -264,10 +264,11 @@ export async function fetchCampaign(campaignId: string): Promise<import("@/types
 /** Aktualizuje memory_summary kampane po narrácii */
 export async function updateCampaignMemory(campaignId: string, memorySummary: string): Promise<void> {
   const supabase = createClient();
-  await supabase
+  const { error } = await supabase
     .from("campaigns")
     .update({ memory_summary: memorySummary, updated_at: new Date().toISOString() })
     .eq("id", campaignId);
+  if (error) throw error;
 }
 
 /** Skontroluje, či je používateľ členom kampane (Supabase) */
