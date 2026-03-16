@@ -148,8 +148,10 @@ export default function CharactersPage() {
         const created = await insertCharacter({ ...rest, campaignId });
         if (!created) throw new Error("Postava nebola vytvorená");
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error("[addFromRoster] Supabase error:", msg);
+        const msg = err instanceof Error
+          ? err.message
+          : (err as { message?: string })?.message ?? JSON.stringify(err);
+        console.error("[addFromRoster] Supabase error:", err);
         alert(`Nepodařilo se přidat postavu: ${msg}`);
         return;
       }
