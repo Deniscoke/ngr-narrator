@@ -15,6 +15,8 @@ import type { MapLocation, MapMarkerData } from "@/lib/ai/provider";
 export interface WorldMapRendererProps {
   currentLocation: MapLocation | null;
   markers: MapMarkerData[];
+  /** Optional: highlight a specific location (e.g. from marker click) */
+  focusedLocationId?: string | null;
 }
 
 // ---- Constants ----
@@ -60,7 +62,7 @@ function buildEdges(locations: OthionLocation[]): Array<[OthionLocation, OthionL
 
 // ---- Component ----
 
-export default function SvgWorldMapRenderer({ currentLocation, markers }: WorldMapRendererProps) {
+export default function SvgWorldMapRenderer({ currentLocation, markers, focusedLocationId }: WorldMapRendererProps) {
   const mapType = currentLocation?.map ?? "world";
   const locations = OTHION_LOCATIONS.filter((l) => l.map === mapType);
   const edges = buildEdges(locations);
@@ -114,6 +116,8 @@ export default function SvgWorldMapRenderer({ currentLocation, markers }: WorldM
         const locMarkers = markersByLocation.get(loc.id) ?? [];
         const topMarker = locMarkers[0];
 
+        const isFocused = focusedLocationId === loc.id && !isCurrent;
+
         return (
           <g key={loc.id}>
             {/* Current location — outer glow ring */}
@@ -125,6 +129,18 @@ export default function SvgWorldMapRenderer({ currentLocation, markers }: WorldM
                 stroke="rgba(201,162,39,0.5)"
                 strokeWidth="2"
                 filter="url(#glow)"
+              />
+            )}
+
+            {/* Focused location (from marker click) — cyan ring */}
+            {isFocused && (
+              <circle
+                cx={loc.x} cy={loc.y}
+                r={NODE_R + 4}
+                fill="none"
+                stroke="rgba(96,165,250,0.6)"
+                strokeWidth="1.5"
+                strokeDasharray="3 2"
               />
             )}
 
