@@ -144,9 +144,13 @@ export default function CharactersPage() {
     const { id: _omit, createdAt: _c, updatedAt: _u, campaignId: _cid, ...rest } = rosterChar;
 
     if (SB_AVAILABLE) {
-      const created = await insertCharacter({ ...rest, campaignId });
-      if (!created) {
-        alert("Nepodařilo se přidat postavu do kampaně.");
+      try {
+        const created = await insertCharacter({ ...rest, campaignId });
+        if (!created) throw new Error("Postava nebola vytvorená");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[addFromRoster] Supabase error:", msg);
+        alert(`Nepodařilo se přidat postavu: ${msg}`);
         return;
       }
     } else {
