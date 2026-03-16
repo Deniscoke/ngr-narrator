@@ -413,6 +413,7 @@ export async function POST(request: NextRequest) {
       debug: {
         recentCount: recentEntries.length,
         relevantCount: relevantEntries.length,
+        eventCount: eventLog.length,
         memoryLength: effectiveMemory.length,
         charactersCount: characters.length,
         supabaseAvailable: !!sbEnv,

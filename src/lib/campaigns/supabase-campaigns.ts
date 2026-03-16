@@ -82,6 +82,8 @@ export async function getMyCampaigns(userId: string): Promise<CampaignWithRole[]
       rules_pack_text: c.rules_pack_text,
       password_hash: c.password_hash,
       password_salt: c.password_salt,
+      join_code: c.join_code ?? null,
+      is_public: c.is_public ?? null,
       created_at: c.created_at,
       updated_at: c.updated_at,
     }),
@@ -133,6 +135,8 @@ export async function createCampaign(
     rules_pack_text: campaign.rules_pack_text,
     password_hash: campaign.password_hash,
     password_salt: campaign.password_salt,
+    join_code: campaign.join_code ?? null,
+    is_public: campaign.is_public ?? null,
     created_at: campaign.created_at,
     updated_at: campaign.updated_at,
   });
@@ -307,6 +311,8 @@ export async function getCampaignById(campaignId: string, userId: string): Promi
     rules_pack_text: campaign.rules_pack_text,
     password_hash: campaign.password_hash,
     password_salt: campaign.password_salt,
+    join_code: campaign.join_code ?? null,
+    is_public: campaign.is_public ?? null,
     created_at: campaign.created_at,
     updated_at: campaign.updated_at,
   });
