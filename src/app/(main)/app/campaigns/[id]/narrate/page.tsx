@@ -86,6 +86,7 @@ export default function NarratePage() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [promptEmpty, setPromptEmpty] = useState(false);
   const [mode, setMode] = useState<NarrateMode>("local");
   const [recent, setRecent] = useState<NarrationEntry[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -307,7 +308,8 @@ export default function NarratePage() {
   // ---- Generate narration ----
   async function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
-    if (!prompt.trim()) return;
+    if (!prompt.trim()) { setPromptEmpty(true); return; }
+    setPromptEmpty(false);
     setLoading(true);
     setError("");
     setOutput("");
@@ -611,10 +613,11 @@ export default function NarratePage() {
 
       {/* Prompt form */}
       <form onSubmit={handleGenerate} className="mb-6 space-y-3">
-        <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4}
+        <textarea value={prompt} onChange={(e) => { setPrompt(e.target.value); setPromptEmpty(false); }} rows={4}
           placeholder="Popiš situaci, scénu nebo akci hráčů… (hod kostkou se automaticky vloží)"
-          className="w-full rounded-lg px-3 py-2 text-sm resize-y dh-input"
+          className={`w-full rounded-lg px-3 py-2 text-sm resize-y dh-input ${promptEmpty ? "border-red-500 ring-1 ring-red-500" : ""}`}
         />
+        {promptEmpty && <p className="text-xs text-red-400">Nejprve napiš, co se děje…</p>}
 
         {/* Action row: Generate + Mic */}
         <div className="flex items-center gap-3 flex-wrap">
