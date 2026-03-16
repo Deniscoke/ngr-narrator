@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LocalProvider } from "@/lib/ai/local-provider";
 import { OpenAIProvider } from "@/lib/ai/openai-provider";
-import type { NarrationRequest, NarrationProvider, CompactNarrationEntry, CharacterSnapshot } from "@/lib/ai/provider";
+import type { NarrationRequest, NarrationProvider, CompactNarrationEntry, CharacterSnapshot, EventLogEntry } from "@/lib/ai/provider";
 
 // ---- Supabase server client — lazy, dynamic (requires next/headers) ----
 async function loadServerSupabase() {
@@ -218,6 +218,7 @@ export async function POST(request: NextRequest) {
     // ---- Gather context from Supabase (if configured) ----
     let recentEntries: NarrationRequest["recentEntries"] = [];
     let relevantEntries: NarrationRequest["relevantEntries"] = [];
+    let eventLog: EventLogEntry[] = [];
     let supabaseMemory: string | null = null;
 
     if (sbEnv && supabase) {
@@ -230,13 +231,13 @@ export async function POST(request: NextRequest) {
           .maybeSingle();
         supabaseMemory = campaignRow?.memory_summary ?? null;
 
-        // Recent narrations (new schema: user_input / narration_text)
+        // Recent narrations — Tier 2: last 10
         const { data: recentData } = await supabase
           .from("narrations")
           .select("user_input, narration_text, created_at")
           .eq("campaign_id", campaignId)
           .order("created_at", { ascending: false })
-          .limit(5);
+          .limit(10);
         if (recentData) {
           recentEntries = recentData.map((r: { user_input: string; narration_text: string; created_at: string }) => ({
             userInput: r.user_input,
@@ -245,29 +246,52 @@ export async function POST(request: NextRequest) {
           }));
         }
 
-        // Relevant entries — keyword search
+        // Relevant entries — keyword search across both columns, offset past recent 10, limit 15
         const tokens = Array.from(new Set(
           prompt.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(t => t.length >= 3)
         )).slice(0, 6);
         if (tokens.length > 0) {
-          const orClauses = tokens.map(t => `user_input.ilike.%${t}%`).join(",");
+          const orClauses = tokens.flatMap(t => [
+            `user_input.ilike.%${t}%`,
+            `narration_text.ilike.%${t}%`,
+          ]).join(",");
           const { data: relData } = await supabase
             .from("narrations")
             .select("user_input, narration_text, created_at")
             .eq("campaign_id", campaignId)
             .or(orClauses)
             .order("created_at", { ascending: false })
-            .range(5, 9);
+            .range(10, 24);
           if (relData) {
             relevantEntries = relData.map((r: { user_input: string; narration_text: string; created_at: string }) => ({
               userInput: r.user_input,
-              narrationText: r.narration_text,
+              narrationText: r.narration_text.slice(0, 300), // truncate to control token usage
               createdAt: r.created_at,
             }));
           }
         }
       } catch (dbErr) {
         console.warn("[narrate] Supabase context fetch failed, continuing without:", dbErr);
+      }
+
+      // Tier 3: structured event log (memory_entries type='event', last 10)
+      try {
+        const { data: eventData } = await supabase
+          .from("memory_entries")
+          .select("title, content, created_at")
+          .eq("campaign_id", campaignId)
+          .eq("type", "event")
+          .order("created_at", { ascending: false })
+          .limit(10);
+        if (eventData) {
+          eventLog = eventData.map((e: { title: string; content: string; created_at: string }) => ({
+            title: e.title,
+            content: e.content,
+            createdAt: e.created_at,
+          }));
+        }
+      } catch (eventErr) {
+        console.warn("[narrate] event log fetch failed:", eventErr);
       }
     }
 
@@ -315,12 +339,13 @@ export async function POST(request: NextRequest) {
       rulesPackText: body.rulesPackText ?? "",
       recentEntries,
       relevantEntries,
+      eventLog: eventLog.length > 0 ? eventLog : undefined,
       campaignState: null,
       characters,
       userInput: prompt,
     };
 
-    console.log(`[narrate] mode=${actualMode} campaign=${campaignId} recentEntries=${recentEntries.length} relevantEntries=${relevantEntries.length} memoryLen=${effectiveMemory.length}`);
+    console.log(`[narrate] mode=${actualMode} campaign=${campaignId} recent=${recentEntries.length} relevant=${relevantEntries.length} events=${eventLog.length} memoryLen=${effectiveMemory.length}`);
 
     // ---- Generate narration ----
     if (actualMode === "local") {
@@ -349,6 +374,26 @@ export async function POST(request: NextRequest) {
               updated_at: new Date().toISOString(),
             })
             .eq("id", campaignId);
+        }
+
+        // Persist storyBeat to memory_entries (fire-and-forget — doesn't block response)
+        if (result.storyBeat) {
+          const beat = result.storyBeat;
+          supabase
+            .from("memory_entries")
+            .insert({
+              campaign_id: campaignId,
+              type: "event",
+              title: beat.summary.slice(0, 120),
+              content: JSON.stringify(beat),
+              tags: [
+                ...(beat.location ? [beat.location] : []),
+                ...(beat.importantNPCs ?? []).slice(0, 3),
+              ].filter(Boolean),
+            })
+            .then(({ error }) => {
+              if (error) console.warn("[narrate] storyBeat memory_entry insert failed:", error.message);
+            });
         }
       } catch (dbErr) {
         console.warn("[narrate] Supabase persistence failed:", dbErr);
