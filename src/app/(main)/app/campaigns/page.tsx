@@ -236,7 +236,7 @@ export default function CampaignsPage() {
       setPwError("");
       return;
     }
-    router.push(`/campaigns/${c.id}`);
+    router.push(`/app/campaigns/${c.id}`);
   }
 
   function handleDeleteClick(c: Campaign) {
@@ -265,7 +265,7 @@ export default function CampaignsPage() {
 
     if (pwModal.purpose === "enter") {
       setPwModal(null);
-      router.push(`/campaigns/${c.id}`);
+      router.push(`/app/campaigns/${c.id}`);
     } else {
       setPwModal(null);
       wipeCampaign(c.id);
