@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { campaignRepo, sessionRepo, characterRepo, narrationRepo, memoryRepo, campaignStateRepo } from "@/lib/storage";
-import { getMyCampaigns, createCampaign, joinCampaign, hasSupabase } from "@/lib/campaigns";
+import { getMyCampaigns, createCampaign, hasSupabase, type CampaignWithRole } from "@/lib/campaigns";
 import { Campaign } from "@/types";
 import { hashPassword, verifyPassword } from "@/lib/security/password";
 import { FancyCard } from "@/components/ui/FancyCard";
@@ -27,6 +27,8 @@ export default function CampaignsPage() {
 
   // Join campaign
   const [joinCode, setJoinCode] = useState("");
+  const [joinPassword, setJoinPassword] = useState("");
+  const [joinRequiresPassword, setJoinRequiresPassword] = useState(false);
   const [joinError, setJoinError] = useState("");
   const [joinLoading, setJoinLoading] = useState(false);
 
@@ -135,14 +137,43 @@ export default function CampaignsPage() {
     if (!code || !user) return;
     setJoinLoading(true);
     setJoinError("");
-    const result = await joinCampaign(user.id, code);
-    setJoinLoading(false);
-    if (result.ok) {
-      await campaignRepo.upsert(result.campaign);
+
+    try {
+      const res = await fetch("/api/campaigns/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          joinCode: code,
+          password: joinPassword.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+
+      if (res.status === 403 && data.requiresPassword) {
+        // Campaign is password-protected — reveal password field
+        setJoinRequiresPassword(true);
+        setJoinError("Tato kampaň vyžaduje heslo.");
+        setJoinLoading(false);
+        return;
+      }
+
+      if (!res.ok) {
+        setJoinError(data.error || `Chyba ${res.status}`);
+        setJoinLoading(false);
+        return;
+      }
+
+      // Success
+      const joined: Campaign = data.campaign;
+      await campaignRepo.upsert(joined);
       setJoinCode("");
+      setJoinPassword("");
+      setJoinRequiresPassword(false);
       reload();
-    } else {
-      setJoinError(result.error);
+    } catch {
+      setJoinError("Nepodařilo se spojit se serverem.");
+    } finally {
+      setJoinLoading(false);
     }
   }
 
@@ -247,18 +278,45 @@ export default function CampaignsPage() {
 
       {useSupabase && user && (
         <form onSubmit={handleJoin} className="mb-8 p-4 rounded-xl" style={{ border: "1px dashed var(--border-default)", background: "rgba(42,35,28,0.5)" }}>
-          <p className="text-sm font-medium mb-2" style={{ color: "var(--text-primary)" }}>Pripojiť sa ku kampani</p>
-          <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>Zadaj kód kampaně (UUID) a stiskni Pripojiť.</p>
-          <div className="flex gap-2 flex-wrap">
-            <input
-              value={joinCode}
-              onChange={(e) => { setJoinCode(e.target.value); setJoinError(""); }}
-              placeholder="napr. a1b2c3d4-e5f6-..."
-              className={inputClass + " flex-1 min-w-[200px]"}
-            />
-            <button type="submit" disabled={joinLoading || !joinCode.trim()} className="dh-btn-primary font-medium text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
-              {joinLoading ? "Spracovávam…" : "Pripojiť sa"}
-            </button>
+          <p className="text-sm font-medium mb-1" style={{ color: "var(--text-primary)" }}>Připojit se ke kampani</p>
+          <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+            Zadej 6-místný kód kampaně (najdeš ho u tvůrce na kartě kampaně).
+          </p>
+          <div className="space-y-2">
+            <div className="flex gap-2 flex-wrap">
+              <input
+                value={joinCode}
+                onChange={(e) => { setJoinCode(e.target.value.toUpperCase()); setJoinError(""); setJoinRequiresPassword(false); }}
+                placeholder="např. A1B2C3"
+                maxLength={8}
+                className={inputClass + " flex-1 min-w-[140px] uppercase tracking-widest"}
+              />
+              {!joinRequiresPassword && (
+                <button type="submit" disabled={joinLoading || !joinCode.trim()}
+                  className="dh-btn-primary font-medium text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {joinLoading ? "Zpracovávám…" : "Připojit se"}
+                </button>
+              )}
+            </div>
+            {joinRequiresPassword && (
+              <div className="flex gap-2 flex-wrap">
+                <input
+                  type="password"
+                  value={joinPassword}
+                  onChange={(e) => setJoinPassword(e.target.value)}
+                  placeholder="Heslo kampaně"
+                  autoFocus
+                  className={inputClass + " flex-1 min-w-[160px]"}
+                  autoComplete="off"
+                />
+                <button type="submit" disabled={joinLoading || !joinPassword.trim()}
+                  className="dh-btn-primary font-medium text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {joinLoading ? "Ověřuji…" : "Ověřit heslo"}
+                </button>
+              </div>
+            )}
           </div>
           {joinError && <p className="text-xs text-red-400 mt-2">{joinError}</p>}
         </form>
@@ -285,8 +343,8 @@ export default function CampaignsPage() {
           ) : (
             <FancyCard
               key={c.id}
-              title={(c.passwordHash ? "🔒 " : "") + c.name}
-              role={new Date(c.updatedAt || c.createdAt).toLocaleDateString("sk-SK")}
+              title={(c.hasPassword ? "🔒 " : "") + c.name}
+              role={new Date(c.updatedAt || c.createdAt).toLocaleDateString("cs-CZ")}
               watermark={c.name.slice(0, 2).toUpperCase()}
               theme={(() => {
                 const idx = campaigns.indexOf(c);
@@ -295,7 +353,9 @@ export default function CampaignsPage() {
               })()}
               items={[
                 ...(c.description ? [{ icon: "📜", label: c.description }] : []),
-                { icon: "🔑", label: c.id.slice(0, 8) },
+                ...((c as CampaignWithRole).role === "owner" && c.joinCode
+                  ? [{ icon: "🔗", label: `Kód: ${c.joinCode}` }]
+                  : [{ icon: "🔑", label: c.id.slice(0, 8) }]),
               ]}
               onClick={() => handleCampaignClick(c)}
             >
